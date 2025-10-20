@@ -1,0 +1,6 @@
+@PRN232_Quizlet_HostAddress = http://localhost:5007
+
+GET {{PRN232_Quizlet_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
