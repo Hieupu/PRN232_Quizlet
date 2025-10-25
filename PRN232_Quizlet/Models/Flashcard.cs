@@ -23,5 +23,7 @@ public partial class Flashcard
 
     public DateTime? CreatedAt { get; set; }
 
+    public string Status { get; set; } = null!;
+
     public virtual FlashcardSet Set { get; set; } = null!;
 }

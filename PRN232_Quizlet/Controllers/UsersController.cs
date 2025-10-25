@@ -35,7 +35,8 @@ namespace PRN232_Quizlet.Controllers
                 Email = model.Email,
                 PasswordHash = hashedPassword,
                 FullName = model.FullName,
-                Role = "User"
+                Role = "User",
+                Status = "Active",
             };
 
             _context.Users.Add(user);
