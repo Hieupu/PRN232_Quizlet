@@ -93,7 +93,7 @@ namespace PRN232_Quizlet.Controllers
         [HttpGet("mysets")]
         public IActionResult GetMySets()
         {
-            var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+            var userId = int.Parse(User.FindFirstValue("UserID")!);
 
             var sets = _context.FlashcardSets
                 .Where(s => s.CreatedBy == userId && s.Status == "Active")
@@ -115,7 +115,7 @@ namespace PRN232_Quizlet.Controllers
         [HttpPost]
         public IActionResult CreateSet([FromBody] FlashcardSet model)
         {
-            var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+            var userId = int.Parse(User.FindFirstValue("UserID")!);
 
             var newSet = new FlashcardSet
             {
@@ -137,7 +137,7 @@ namespace PRN232_Quizlet.Controllers
         [HttpPut("{id}")]
         public IActionResult UpdateSet(int id, [FromBody] FlashcardSet model)
         {
-            var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+            var userId = int.Parse(User.FindFirstValue("UserID")!);
             var set = _context.FlashcardSets.FirstOrDefault(s => s.SetId == id && s.Status == "Active");
 
             if (set == null)
@@ -156,7 +156,7 @@ namespace PRN232_Quizlet.Controllers
         [HttpDelete("{id}")]
         public IActionResult DeleteSet(int id)
         {
-            var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+            var userId = int.Parse(User.FindFirstValue("UserID")!);
             var set = _context.FlashcardSets
                 .Include(s => s.Flashcards)
                 .FirstOrDefault(s => s.SetId == id && s.Status == "Active");
