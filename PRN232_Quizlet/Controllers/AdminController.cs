@@ -10,6 +10,7 @@ namespace PRN232_Quizlet.Controllers
     /// UC01: Xem danh sách người dùng
     /// UC02: Cập nhật / khóa tài khoản
     /// UC03: Xem danh sách bộ thẻ học
+    /// UC04: Duyệt / xóa nội dung vi phạm
     [Route("api/[controller]")]
     [ApiController]
     public class AdminController : ControllerBase
@@ -338,6 +339,82 @@ namespace PRN232_Quizlet.Controllers
                 totalPages,         // Tổng số trang
                 data = sets         // Danh sách Flashcard Sets
             });
+        }
+
+        /// <summary>
+        /// UC04: Xóa FlashcardSet vi phạm - Admin có thể xóa Set của bất kỳ ai
+        /// </summary>
+        /// <param name="id">ID của FlashcardSet cần xóa</param>
+        /// <returns>Message xác nhận xóa thành công</returns>
+        [HttpDelete("flashcardsets/{id}")]
+        public IActionResult DeleteFlashcardSet(int id)
+        {
+            // Bước 1: Kiểm tra quyền Admin
+            var permissionCheck = CheckAdminPermission();
+            if (permissionCheck != null)
+            {
+                return permissionCheck; // Trả về lỗi nếu không có quyền
+            }
+
+            // Bước 2: Tìm FlashcardSet theo ID (không cần check Status, Admin có thể xóa cả Inactive)
+            var set = _context.FlashcardSets
+                .Include(s => s.Flashcards) // Include Flashcards để xóa tất cả
+                .FirstOrDefault(s => s.SetId == id);
+
+            // Bước 3: Kiểm tra Set có tồn tại không
+            if (set == null)
+            {
+                return NotFound(new { message = "FlashcardSet not found." });
+            }
+
+            // Bước 4: Set Status = "Inactive" cho Set (soft delete)
+            set.Status = "Inactive";
+
+            // Bước 5: Set Status = "Inactive" cho tất cả Flashcards trong Set
+            foreach (var flashcard in set.Flashcards)
+            {
+                flashcard.Status = "Inactive";
+            }
+
+            // Bước 6: Lưu thay đổi vào database
+            _context.SaveChanges();
+
+            // Bước 7: Trả về message thành công
+            return Ok(new { message = "FlashcardSet deleted successfully." });
+        }
+
+        /// <summary>
+        /// UC04: Xóa Flashcard riêng lẻ vi phạm - Admin có thể xóa Flashcard của bất kỳ ai
+        /// </summary>
+        /// <param name="id">ID của Flashcard cần xóa</param>
+        /// <returns>Message xác nhận xóa thành công</returns>
+        [HttpDelete("flashcards/{id}")]
+        public IActionResult DeleteFlashcard(int id)
+        {
+            // Bước 1: Kiểm tra quyền Admin
+            var permissionCheck = CheckAdminPermission();
+            if (permissionCheck != null)
+            {
+                return permissionCheck; // Trả về lỗi nếu không có quyền
+            }
+
+            // Bước 2: Tìm Flashcard theo ID (không cần check Status)
+            var flashcard = _context.Flashcards.FirstOrDefault(f => f.FlashcardId == id);
+
+            // Bước 3: Kiểm tra Flashcard có tồn tại không
+            if (flashcard == null)
+            {
+                return NotFound(new { message = "Flashcard not found." });
+            }
+
+            // Bước 4: Set Status = "Inactive" cho Flashcard (soft delete)
+            flashcard.Status = "Inactive";
+
+            // Bước 5: Lưu thay đổi vào database
+            _context.SaveChanges();
+
+            // Bước 6: Trả về message thành công
+            return Ok(new { message = "Flashcard deleted successfully." });
         }
     }
 }
