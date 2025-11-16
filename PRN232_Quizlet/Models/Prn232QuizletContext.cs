@@ -17,19 +17,24 @@ public partial class Prn232QuizletContext : DbContext
 
     public virtual DbSet<Flashcard> Flashcards { get; set; }
 
+    public virtual DbSet<FlashcardCurrentVersion> FlashcardCurrentVersions { get; set; }
+
     public virtual DbSet<FlashcardSet> FlashcardSets { get; set; }
+
+    public virtual DbSet<QuizAttemptDetail> QuizAttemptDetails { get; set; }
 
     public virtual DbSet<QuizHistory> QuizHistories { get; set; }
 
     public virtual DbSet<User> Users { get; set; }
 
-    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder) { }
+    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
+        => optionsBuilder.UseSqlServer("Name=ConnectionStrings:MyCnn");
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<Flashcard>(entity =>
         {
-            entity.HasKey(e => e.FlashcardId).HasName("PK__Flashcar__D36F85529537D066");
+            entity.HasKey(e => e.FlashcardId).HasName("PK__Flashcar__D36F8552598B09C0");
 
             entity.Property(e => e.FlashcardId).HasColumnName("FlashcardID");
             entity.Property(e => e.CorrectOption)
@@ -43,16 +48,34 @@ public partial class Prn232QuizletContext : DbContext
             entity.Property(e => e.OptionD).HasMaxLength(255);
             entity.Property(e => e.Question).HasMaxLength(500);
             entity.Property(e => e.SetId).HasColumnName("SetID");
-            entity.Property(e => e.Status).HasMaxLength(20);
+            entity.Property(e => e.Status)
+                .HasMaxLength(20)
+                .HasDefaultValue("Active");
 
             entity.HasOne(d => d.Set).WithMany(p => p.Flashcards)
                 .HasForeignKey(d => d.SetId)
                 .HasConstraintName("FK_Flashcards_FlashcardSets");
         });
 
+        modelBuilder.Entity<FlashcardCurrentVersion>(entity =>
+        {
+            entity.HasKey(e => e.FlashcardId).HasName("PK__Flashcar__D36F857210988E52");
+
+            entity.ToTable("FlashcardCurrentVersion");
+
+            entity.Property(e => e.FlashcardId)
+                .ValueGeneratedNever()
+                .HasColumnName("FlashcardID");
+
+            entity.HasOne(d => d.Flashcard).WithOne(p => p.FlashcardCurrentVersion)
+                .HasForeignKey<FlashcardCurrentVersion>(d => d.FlashcardId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_FlashcardCurrentVersion_Flashcards");
+        });
+
         modelBuilder.Entity<FlashcardSet>(entity =>
         {
-            entity.HasKey(e => e.SetId).HasName("PK__Flashcar__7E08473D7AEBD933");
+            entity.HasKey(e => e.SetId).HasName("PK__Flashcar__7E08473D9084D404");
 
             entity.Property(e => e.SetId).HasColumnName("SetID");
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("(sysutcdatetime())");
@@ -67,9 +90,34 @@ public partial class Prn232QuizletContext : DbContext
                 .HasConstraintName("FK_FlashcardSets_Users");
         });
 
+        modelBuilder.Entity<QuizAttemptDetail>(entity =>
+        {
+            entity.HasKey(e => e.DetailId).HasName("PK__QuizAtte__135C316D8FCCC3DB");
+
+            entity.ToTable("QuizAttemptDetail");
+
+            entity.Property(e => e.DetailId).HasColumnName("DetailID");
+            entity.Property(e => e.FlashcardId).HasColumnName("FlashcardID");
+            entity.Property(e => e.QuizId).HasColumnName("QuizID");
+            entity.Property(e => e.UserAnswer)
+                .HasMaxLength(1)
+                .IsUnicode(false)
+                .IsFixedLength();
+
+            entity.HasOne(d => d.Flashcard).WithMany(p => p.QuizAttemptDetails)
+                .HasForeignKey(d => d.FlashcardId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_QuizAttemptDetail_Flashcards");
+
+            entity.HasOne(d => d.Quiz).WithMany(p => p.QuizAttemptDetails)
+                .HasForeignKey(d => d.QuizId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_QuizAttemptDetail_QuizHistory");
+        });
+
         modelBuilder.Entity<QuizHistory>(entity =>
         {
-            entity.HasKey(e => e.QuizId).HasName("PK__QuizHist__8B42AE6E0838ADBC");
+            entity.HasKey(e => e.QuizId).HasName("PK__QuizHist__8B42AE6E0C27B4B0");
 
             entity.ToTable("QuizHistory");
 
@@ -91,9 +139,9 @@ public partial class Prn232QuizletContext : DbContext
 
         modelBuilder.Entity<User>(entity =>
         {
-            entity.HasKey(e => e.UserId).HasName("PK__Users__1788CCACD91820C3");
+            entity.HasKey(e => e.UserId).HasName("PK__Users__1788CCACF4341039");
 
-            entity.HasIndex(e => e.Email, "UQ__Users__A9D10534BF92DE5A").IsUnique();
+            entity.HasIndex(e => e.Email, "UQ__Users__A9D1053412EC2315").IsUnique();
 
             entity.Property(e => e.UserId).HasColumnName("UserID");
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("(sysutcdatetime())");
@@ -103,7 +151,9 @@ public partial class Prn232QuizletContext : DbContext
             entity.Property(e => e.Role)
                 .HasMaxLength(20)
                 .HasDefaultValue("User");
-            entity.Property(e => e.Status).HasMaxLength(20);
+            entity.Property(e => e.Status)
+                .HasMaxLength(20)
+                .HasDefaultValue("Active");
         });
 
         OnModelCreatingPartial(modelBuilder);

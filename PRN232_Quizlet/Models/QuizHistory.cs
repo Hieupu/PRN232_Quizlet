@@ -21,6 +21,8 @@ public partial class QuizHistory
 
     public double Score { get; set; }
 
+    public virtual ICollection<QuizAttemptDetail> QuizAttemptDetails { get; set; } = new List<QuizAttemptDetail>();
+
     public virtual FlashcardSet? Set { get; set; }
 
     public virtual User? User { get; set; }

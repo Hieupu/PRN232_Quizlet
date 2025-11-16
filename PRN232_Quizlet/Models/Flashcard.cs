@@ -25,5 +25,11 @@ public partial class Flashcard
 
     public string Status { get; set; } = null!;
 
+    public int Version { get; set; }
+
+    public virtual FlashcardCurrentVersion? FlashcardCurrentVersion { get; set; }
+
+    public virtual ICollection<QuizAttemptDetail> QuizAttemptDetails { get; set; } = new List<QuizAttemptDetail>();
+
     public virtual FlashcardSet Set { get; set; } = null!;
 }
