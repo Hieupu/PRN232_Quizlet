@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using PRN232_Quizlet.DTOs;
 using PRN232_Quizlet.Models;
 using System.Security.Claims;
@@ -8,6 +9,7 @@ namespace PRN232_Quizlet.Controllers
 {
     /// UC01: Xem danh sách người dùng
     /// UC02: Cập nhật / khóa tài khoản
+    /// UC03: Xem danh sách bộ thẻ học
     [Route("api/[controller]")]
     [ApiController]
     public class AdminController : ControllerBase
@@ -241,6 +243,100 @@ namespace PRN232_Quizlet.Controllers
                     user.Status,
                     user.CreatedAt      
                 }
+            });
+        }
+
+        /// <summary>
+        /// UC03: Xem danh sách bộ thẻ học - Quản lý tất cả Flashcard Sets trong hệ thống
+        /// </summary>
+        /// <param name="search">Tìm kiếm theo tiêu đề (Title)</param>
+        /// <param name="createdBy">Lọc theo UserID của người tạo</param>
+        /// <param name="page">Số trang (bắt đầu từ 1)</param>
+        /// <param name="pageSize">Số bản ghi trên 1 trang</param>
+        /// <returns>Danh sách Flashcard Sets với phân trang</returns>
+        [HttpGet("flashcardsets")]
+        public IActionResult GetAllFlashcardSets(
+            string? search = "",
+            int? createdBy = null,
+            int page = 1,
+            int pageSize = 10)
+        {
+            // Bước 1: Kiểm tra quyền Admin
+            var permissionCheck = CheckAdminPermission();
+            if (permissionCheck != null)
+            {
+                return permissionCheck; // Trả về lỗi nếu không có quyền
+            }
+
+            // Bước 2: Validate và chuẩn hóa tham số phân trang
+            // Đảm bảo page >= 1
+            if (page < 1)
+            {
+                page = 1;
+            }
+            // Đảm bảo pageSize hợp lệ (1 <= pageSize <= MAX_PAGE_SIZE)
+            if (pageSize < 1)
+            {
+                pageSize = 10; // Mặc định 10 bản ghi/trang
+            }
+            if (pageSize > MAX_PAGE_SIZE)
+            {
+                pageSize = MAX_PAGE_SIZE; // Giới hạn tối đa
+            }
+
+            // Bước 3: Tạo query để lấy danh sách Flashcard Sets
+            var query = _context.FlashcardSets
+                .Include(s => s.CreatedByNavigation)
+                .Where(s => s.Status == "Active") // Chỉ hiển thị sets đang hoạt động
+                .AsQueryable();
+
+            // Bước 4: Áp dụng các filter tìm kiếm
+
+            // Filter 1: Tìm kiếm theo Title (không phân biệt hoa thường)
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                var searchLower = search.Trim().ToLower(); // Chuyển sang chữ thường để so sánh
+                query = query.Where(s => s.Title.ToLower().Contains(searchLower));
+            }
+
+            // Filter 2: Lọc theo người tạo (CreatedBy)
+            if (createdBy.HasValue)
+            {
+                query = query.Where(s => s.CreatedBy == createdBy.Value);
+            }
+
+            // Bước 5: Đếm tổng số bản ghi sau khi filter (trước khi phân trang)
+            var total = query.Count();
+
+            // Bước 6: Áp dụng phân trang và sắp xếp
+            var sets = query
+                .OrderByDescending(s => s.CreatedAt)              // Sắp xếp mới nhất trước
+                .Skip((page - 1) * pageSize)                       // Bỏ qua các bản ghi ở trang trước
+                .Take(pageSize)                                    // Lấy đúng số bản ghi của trang hiện tại
+                .Select(s => new                                   // Chỉ lấy các trường cần thiết
+                {
+                    s.SetId,
+                    s.Title,
+                    s.Description,
+                    s.StudyCount,
+                    s.Status,
+                    s.CreatedAt,
+                    Author = s.CreatedByNavigation.FullName,
+                    AuthorId = s.CreatedByNavigation.UserId
+                })
+                .ToList();
+
+            // Bước 7: Tính tổng số trang
+            var totalPages = (int)Math.Ceiling(total / (double)pageSize);
+
+            // Bước 8: Trả về kết quả với thông tin phân trang
+            return Ok(new
+            {
+                total,              // Tổng số bản ghi
+                page,               // Trang hiện tại
+                pageSize,           // Số bản ghi/trang
+                totalPages,         // Tổng số trang
+                data = sets         // Danh sách Flashcard Sets
             });
         }
     }
