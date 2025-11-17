@@ -83,6 +83,25 @@ namespace PRN232_Quizlet.Controllers
             });
         }
 
+        /// <summary>
+        /// UC04: Đăng xuất - Xóa token và kết thúc phiên làm việc
+        /// </summary>
+        /// <returns>Message xác nhận logout thành công</returns>
+        [Authorize]
+        [HttpPost("Logout")]
+        public IActionResult Logout()
+        {
+            var email = User.FindFirst(ClaimTypes.Email)?.Value;
+            var name = User.FindFirst(ClaimTypes.Name)?.Value;
+            var role = User.FindFirst(ClaimTypes.Role)?.Value;
+
+            return Ok(new
+            {
+                message = "Logout successful",
+                user = new { email, name, role }
+            });
+        }
+
         private string GenerateJwtToken(User user)
         {
             var jwt = _config.GetSection("Jwt");
