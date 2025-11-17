@@ -18,51 +18,85 @@ namespace PRN232_Quizlet.Controllers
         }
 
         [HttpGet("generate/{setId}")]
-        public async Task<IActionResult> GenerateQuiz(int setId, [FromQuery] bool shuffle = false)
+        public async Task<IActionResult> GenerateQuiz(
+     int setId,
+     [FromQuery] int amount = 0,
+     [FromQuery] bool shuffle = false)
         {
-            var flashcardsQuery = _context.Flashcards
-                .Where(f => f.SetId == setId)
-                .Select(f => new
+            var flashcards = await (
+                from cv in _context.FlashcardCurrentVersions
+                join f in _context.Flashcards
+                    on new { cv.FlashcardId, Version = cv.CurrentVersion }
+                    equals new { f.FlashcardId, Version = f.Version }
+                where f.SetId == setId && f.Status == "Active"
+                select new
                 {
                     f.FlashcardId,
+                    f.Version,
                     f.Question,
                     f.OptionA,
                     f.OptionB,
                     f.OptionC,
                     f.OptionD
-                });
-
-            var flashcards = await flashcardsQuery.ToListAsync();
+                }
+            ).ToListAsync();
 
             if (!flashcards.Any())
                 return NotFound("Không có câu hỏi nào trong bộ này.");
 
-            // Xáo trộn nếu shuffle = true
             if (shuffle)
             {
                 var rng = new Random();
                 flashcards = flashcards.OrderBy(_ => rng.Next()).ToList();
             }
 
-            return Ok(flashcards);
+            if (amount > 0 && amount < flashcards.Count)
+            {
+                var rng = new Random();
+                flashcards = flashcards
+                    .OrderBy(_ => rng.Next())
+                    .Take(amount)
+                    .ToList();
+            }
+
+            return Ok(new
+            {
+                total = flashcards.Count,
+                questions = flashcards
+            });
         }
+
 
         [HttpPost("submit")]
         public async Task<IActionResult> SubmitQuiz([FromBody] QuizSubmitDto dto)
         {
-            var flashcards = await _context.Flashcards
-                .Where(f => f.SetId == dto.SetId)
-                .ToListAsync();
+            // 1. Lấy version hiện tại của tất cả flashcards trong set
+            var currentCards = await (
+                from cv in _context.FlashcardCurrentVersions
+                join f in _context.Flashcards
+                    on new { cv.FlashcardId, Version = cv.CurrentVersion }
+                    equals new { f.FlashcardId, Version = f.Version }
+                where f.SetId == dto.SetId && f.Status == "Active"
+                select f
+            ).ToListAsync();
 
-            int total = flashcards.Count;
-            int correct = flashcards.Count(f =>
-                dto.Answers.Any(a =>
-                    a.FlashcardId == f.FlashcardId &&
-                    a.SelectedOption.Equals(f.CorrectOption, StringComparison.OrdinalIgnoreCase)));
+            int total = dto.Answers.Count;
+            int correct = 0;
 
-            double score = Math.Round((double)correct / total * 10, 2);
+            foreach (var ans in dto.Answers)
+            {
+                var card = currentCards.FirstOrDefault(f => f.FlashcardId == ans.FlashcardId);
+                if (card != null &&
+                    card.CorrectOption.Equals(ans.SelectedOption, StringComparison.OrdinalIgnoreCase))
+                {
+                    correct++;
+                }
+            }
 
-            var quizHistory = new QuizHistory
+            double score = Math.Round(correct * 10.0 / total, 2);
+
+            // 2. Save QuizHistory
+            var history = new QuizHistory
             {
                 UserId = dto.UserId,
                 SetId = dto.SetId,
@@ -73,23 +107,119 @@ namespace PRN232_Quizlet.Controllers
                 Score = score
             };
 
-            _context.QuizHistories.Add(quizHistory);
+            _context.QuizHistories.Add(history);
             await _context.SaveChangesAsync();
 
-            var result = new QuizResultDto
+            // 3. Save từng câu trong QuizAttemptDetail
+            foreach (var ans in dto.Answers)
             {
-                TotalQuestions = total,
-                CorrectAnswers = correct,
-                Score = score
-            };
+                var card = currentCards.First(f => f.FlashcardId == ans.FlashcardId);
 
-            return Ok(result);
+                _context.QuizAttemptDetails.Add(new QuizAttemptDetail
+                {
+                    QuizId = history.QuizId,
+                    FlashcardId = card.FlashcardId,
+                    Version = card.Version,
+                    UserAnswer = ans.SelectedOption,
+                    IsCorrect = card.CorrectOption.Equals(ans.SelectedOption, StringComparison.OrdinalIgnoreCase)
+                });
+            }
+
+            await _context.SaveChangesAsync();
+
+            return Ok(new
+            {
+                total,
+                correct,
+                score
+            });
+        }
+
+
+        [HttpGet("result/{quizId}")]
+        public async Task<IActionResult> GetQuizResult(int quizId)
+        {
+            var history = await _context.QuizHistories
+                .FirstOrDefaultAsync(q => q.QuizId == quizId);
+
+            if (history == null)
+                return NotFound("Quiz not found.");
+
+            return Ok(new
+            {
+                history.QuizId,
+                history.SetId,
+                history.TotalQuestions,
+                Correct = history.CorrectAnswers,
+                Wrong = history.TotalQuestions - history.CorrectAnswers,
+                Score = history.Score,
+                Start = history.StartTime,
+                End = history.EndTime
+            });
+        }
+
+        [HttpGet("result-detail/{quizId}")]
+        public async Task<IActionResult> GetQuizResultDetail(int quizId)
+        {
+            var details = await (
+                from d in _context.QuizAttemptDetails
+                join f in _context.Flashcards
+                    on new { d.FlashcardId, d.Version }
+                    equals new { f.FlashcardId, Version = f.Version }
+                where d.QuizId == quizId
+                select new
+                {
+                    d.FlashcardId,
+                    d.Version,
+                    f.Question,
+                    f.OptionA,
+                    f.OptionB,
+                    f.OptionC,
+                    f.OptionD,
+                    CorrectOption = f.CorrectOption,
+                    UserAnswer = d.UserAnswer,
+                    d.IsCorrect
+                }
+            ).ToListAsync();
+
+            if (!details.Any())
+                return NotFound("No results found.");
+
+            return Ok(details);
+        }
+
+        [HttpGet("stats/{userId}")]
+        public async Task<IActionResult> GetUserStats(int userId)
+        {
+            var histories = await _context.QuizHistories
+                .Where(q => q.UserId == userId)
+                .ToListAsync();
+
+            if (!histories.Any())
+                return NotFound("User has no quiz attempts.");
+
+            int totalQuestions = histories.Sum(h => h.TotalQuestions);
+            int totalCorrect = histories.Sum(h => h.CorrectAnswers);
+            int totalWrong = totalQuestions - totalCorrect;
+
+            double accuracy = Math.Round((double)totalCorrect / totalQuestions * 100, 2);
+            double avgScore = Math.Round(histories.Average(h => h.Score), 2);
+
+            return Ok(new
+            {
+                TotalQuestions = totalQuestions,
+                Correct = totalCorrect,
+                Wrong = totalWrong,
+                AccuracyPercent = accuracy,
+                AverageScore = avgScore,
+                TotalQuizAttempts = histories.Count
+            });
         }
 
         [HttpGet("history/{userId}")]
         public async Task<IActionResult> GetUserHistory(int userId)
         {
-            var histories = await _context.QuizHistories
+            var list = await _context.QuizHistories
                 .Where(q => q.UserId == userId)
                 .OrderByDescending(q => q.EndTime)
                 .Select(q => new
@@ -98,13 +228,17 @@ namespace PRN232_Quizlet.Controllers
                     q.SetId,
                     q.TotalQuestions,
                     q.CorrectAnswers,
+                    Wrong = q.TotalQuestions - q.CorrectAnswers,
                     q.Score,
                     q.StartTime,
                     q.EndTime
                 })
                 .ToListAsync();
 
-            return Ok(histories);
+            return Ok(list);
         }
+
+
+
     }
 }

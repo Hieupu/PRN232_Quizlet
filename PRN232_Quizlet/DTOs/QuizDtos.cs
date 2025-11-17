@@ -21,5 +21,13 @@
             public int CorrectAnswers { get; set; }
             public double Score { get; set; }
         }
+
+
+        public class AnswerDto
+        {
+            public int FlashcardId { get; set; }
+            public string SelectedOption { get; set; }
+        }
+
     }
 }

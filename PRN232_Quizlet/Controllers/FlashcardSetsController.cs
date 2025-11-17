@@ -4,176 +4,203 @@ using Microsoft.EntityFrameworkCore;
 using PRN232_Quizlet.Models;
 using System.Security.Claims;
 
-namespace PRN232_Quizlet.Controllers
+[Route("api/[controller]")]
+[ApiController]
+public class FlashcardSetsController : ControllerBase
 {
-    [Route("api/[controller]")]
-    [ApiController]
-    public class FlashcardSetsController : ControllerBase
+    private readonly Prn232QuizletContext _context;
+
+    public FlashcardSetsController(Prn232QuizletContext context)
     {
-        private readonly Prn232QuizletContext _context;
+        _context = context;
+    }
 
-        public FlashcardSetsController(Prn232QuizletContext context)
-        {
-            _context = context;
-        }
+    // =====================================================================
+    // GET ALL SETS (Status = Active)
+    // =====================================================================
+    [HttpGet]
+    public IActionResult GetAllSets(string? search = "", int page = 1, int pageSize = 8)
+    {
+        var query = _context.FlashcardSets
+            .Include(s => s.CreatedByNavigation)
+            .Where(s => s.Status == "Active")
+            .AsQueryable();
 
-        [HttpGet]
-        public IActionResult GetAllSets(string? search = "", int page = 1, int pageSize = 8)
-        {
-            var query = _context.FlashcardSets
-                .Include(s => s.CreatedByNavigation)
-                .Where(s => s.Status == "Active")
-                .AsQueryable();
+        if (!string.IsNullOrWhiteSpace(search))
+            query = query.Where(s => s.Title.Contains(search));
 
-            if (!string.IsNullOrWhiteSpace(search))
-                query = query.Where(s => s.Title.Contains(search));
+        var total = query.Count();
 
-            var total = query.Count();
-
-            var sets = query
-                .OrderByDescending(s => s.CreatedAt)
-                .Skip((page - 1) * pageSize)
-                .Take(pageSize)
-                .Select(s => new
-                {
-                    s.SetId,
-                    s.Title,
-                    s.Description,
-                    s.StudyCount,
-                    s.CreatedAt,
-                    Author = s.CreatedByNavigation.FullName
-                })
-                .ToList();
-
-            return Ok(new
+        var data = query
+            .OrderByDescending(s => s.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(s => new
             {
-                total,
-                page,
-                pageSize,
-                totalPages = (int)Math.Ceiling(total / (double)pageSize),
-                data = sets
-            });
-        }
+                s.SetId,
+                s.Title,
+                s.Description,
+                s.StudyCount,
+                s.CreatedAt,
+                Author = s.CreatedByNavigation.FullName
+            })
+            .ToList();
 
-        [HttpGet("{id}")]
-        public IActionResult GetSetById(int id)
+        return Ok(new
         {
-            var set = _context.FlashcardSets
-                .Include(s => s.CreatedByNavigation)
-                .Include(s => s.Flashcards)
-                .FirstOrDefault(s => s.SetId == id && s.Status == "Active");
+            total,
+            page,
+            pageSize,
+            totalPages = (int)Math.Ceiling(total / (double)pageSize),
+            data
+        });
+    }
 
-            if (set == null)
-                return NotFound("Set not found or inactive.");
+    // =====================================================================
+    // GET SET BY ID + FLASHCARDS (version mới nhất + đang Active)
+    // =====================================================================
+    [HttpGet("{id}")]
+    public IActionResult GetSetById(int id)
+    {
+        var set = _context.FlashcardSets
+            .Include(s => s.CreatedByNavigation)
+            .FirstOrDefault(s => s.SetId == id && s.Status == "Active");
 
-            return Ok(new
+        if (set == null)
+            return NotFound("Set not found or inactive.");
+
+        // JOIN lấy flashcards version mới nhất + Active
+        var flashcards = (
+            from cv in _context.FlashcardCurrentVersions
+            join f in _context.Flashcards
+                on new { cv.FlashcardId, Version = cv.CurrentVersion }
+                equals new { f.FlashcardId, Version = f.Version }
+            where f.SetId == id && f.Status == "Active"
+            select new
             {
-                set.SetId,
-                set.Title,
-                set.Description,
-                set.StudyCount,
-                set.CreatedAt,
-                Author = set.CreatedByNavigation.FullName,
-                Flashcards = set.Flashcards
-                    .Where(f => f.Status == "Active")
-                    .Select(f => new
-                    {
-                        f.FlashcardId,
-                        f.Question,
-                        f.OptionA,
-                        f.OptionB,
-                        f.OptionC,
-                        f.OptionD,
-                        f.CorrectOption
-                    })
-            });
-        }
+                f.FlashcardId,
+                f.Version,
+                f.Question,
+                f.OptionA,
+                f.OptionB,
+                f.OptionC,
+                f.OptionD,
+                f.CorrectOption
+            }
+        ).ToList();
 
-        [Authorize]
-        [HttpGet("mysets")]
-        public IActionResult GetMySets()
+        return Ok(new
         {
-            var userId = int.Parse(User.FindFirstValue("UserID")!);
+            set.SetId,
+            set.Title,
+            set.Description,
+            set.StudyCount,
+            set.CreatedAt,
+            Author = set.CreatedByNavigation.FullName,
+            Flashcards = flashcards
+        });
+    }
 
-            var sets = _context.FlashcardSets
-                .Where(s => s.CreatedBy == userId && s.Status == "Active")
-                .OrderByDescending(s => s.CreatedAt)
-                .Select(s => new
-                {
-                    s.SetId,
-                    s.Title,
-                    s.Description,
-                    s.StudyCount,
-                    s.CreatedAt
-                })
-                .ToList();
+    // =====================================================================
+    // GET MY SETS
+    // =====================================================================
+    [Authorize]
+    [HttpGet("mysets")]
+    public IActionResult GetMySets()
+    {
+        var userId = int.Parse(User.FindFirstValue("UserID")!);
 
-            return Ok(sets);
-        }
-
-        [Authorize]
-        [HttpPost]
-        public IActionResult CreateSet([FromBody] FlashcardSet model)
-        {
-            var userId = int.Parse(User.FindFirstValue("UserID")!);
-
-            var newSet = new FlashcardSet
+        var sets = _context.FlashcardSets
+            .Where(s => s.CreatedBy == userId && s.Status == "Active")
+            .OrderByDescending(s => s.CreatedAt)
+            .Select(s => new
             {
-                Title = model.Title,
-                Description = model.Description,
-                CreatedBy = userId,
-                StudyCount = 0,
-                CreatedAt = DateTime.UtcNow,
-                Status = "Active"
-            };
+                s.SetId,
+                s.Title,
+                s.Description,
+                s.StudyCount,
+                s.CreatedAt
+            })
+            .ToList();
 
-            _context.FlashcardSets.Add(newSet);
-            _context.SaveChanges();
+        return Ok(sets);
+    }
 
-            return Ok(new { message = "Set created successfully.", newSet.SetId });
-        }
+    // =====================================================================
+    // CREATE SET
+    // =====================================================================
+    [Authorize]
+    [HttpPost]
+    public IActionResult CreateSet([FromBody] FlashcardSet model)
+    {
+        var userId = int.Parse(User.FindFirstValue("UserID")!);
 
-        [Authorize]
-        [HttpPut("{id}")]
-        public IActionResult UpdateSet(int id, [FromBody] FlashcardSet model)
+        var set = new FlashcardSet
         {
-            var userId = int.Parse(User.FindFirstValue("UserID")!);
-            var set = _context.FlashcardSets.FirstOrDefault(s => s.SetId == id && s.Status == "Active");
+            Title = model.Title,
+            Description = model.Description,
+            CreatedBy = userId,
+            StudyCount = 0,
+            CreatedAt = DateTime.UtcNow,
+            Status = "Active"
+        };
 
-            if (set == null)
-                return NotFound("Set not found or inactive.");
-            if (set.CreatedBy != userId)
-                return Forbid("You are not the owner of this set.");
+        _context.FlashcardSets.Add(set);
+        _context.SaveChanges();
 
-            set.Title = model.Title;
-            set.Description = model.Description;
-            _context.SaveChanges();
+        return Ok(new { message = "Set created successfully.", set.SetId });
+    }
 
-            return Ok(new { message = "Set updated successfully." });
-        }
+    // =====================================================================
+    // UPDATE SET
+    // =====================================================================
+    [Authorize]
+    [HttpPut("{id}")]
+    public IActionResult UpdateSet(int id, [FromBody] FlashcardSet model)
+    {
+        var userId = int.Parse(User.FindFirstValue("UserID")!);
 
-        [Authorize]
-        [HttpDelete("{id}")]
-        public IActionResult DeleteSet(int id)
-        {
-            var userId = int.Parse(User.FindFirstValue("UserID")!);
-            var set = _context.FlashcardSets
-                .Include(s => s.Flashcards)
-                .FirstOrDefault(s => s.SetId == id && s.Status == "Active");
+        var set = _context.FlashcardSets.FirstOrDefault(s => s.SetId == id && s.Status == "Active");
 
-            if (set == null)
-                return NotFound("Set not found or already inactive.");
-            if (set.CreatedBy != userId)
-                return Forbid("You are not the owner of this set.");
+        if (set == null)
+            return NotFound("Set not found or inactive.");
+        if (set.CreatedBy != userId)
+            return Forbid("You are not the owner.");
 
-            set.Status = "Inactive";
+        set.Title = model.Title;
+        set.Description = model.Description;
 
-            foreach (var f in set.Flashcards)
-                f.Status = "Inactive";
+        _context.SaveChanges();
 
-            _context.SaveChanges();
+        return Ok(new { message = "Set updated successfully." });
+    }
 
-            return Ok(new { message = "Set marked as inactive (soft deleted)." });
-        }
+    // =====================================================================
+    // DELETE SET (Soft delete)
+    // =====================================================================
+    [Authorize]
+    [HttpDelete("{id}")]
+    public IActionResult DeleteSet(int id)
+    {
+        var userId = int.Parse(User.FindFirstValue("UserID")!);
+
+        var set = _context.FlashcardSets.FirstOrDefault(s => s.SetId == id && s.Status == "Active");
+
+        if (set == null)
+            return NotFound("Set not found or already inactive.");
+        if (set.CreatedBy != userId)
+            return Forbid("You are not the owner.");
+
+        // Soft delete
+        set.Status = "Inactive";
+
+        // Optional: cũng inactive Flashcards của set (nếu cần)
+        var cards = _context.Flashcards.Where(f => f.SetId == id);
+        foreach (var card in cards)
+            card.Status = "Inactive";
+
+        _context.SaveChanges();
+
+        return Ok(new { message = "Set deleted (soft)." });
     }
 }
