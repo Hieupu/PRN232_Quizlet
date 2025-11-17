@@ -84,6 +84,88 @@ namespace PRN232_Quizlet.Controllers
         }
 
         /// <summary>
+        /// UC03: Cập nhật thông tin cá nhân - Thay đổi tên hiển thị, mật khẩu
+        /// </summary>
+        /// <param name="request">Thông tin cần cập nhật (FullName và/hoặc Password)</param>
+        /// <returns>Thông tin user sau khi cập nhật</returns>
+        [Authorize]
+        [HttpPut("profile")]
+        public IActionResult UpdateProfile([FromBody] UpdateProfileRequest request)
+        {
+            // Bước 1: Validate request body
+            if (request == null)
+            {
+                return BadRequest(new { message = "Request body is required." });
+            }
+
+            // Bước 2: Kiểm tra ít nhất phải có 1 trường để cập nhật
+            if (string.IsNullOrWhiteSpace(request.FullName) && string.IsNullOrWhiteSpace(request.Password))
+            {
+                return BadRequest(new { message = "At least one field (FullName or Password) must be provided." });
+            }
+
+            // Bước 3: Lấy UserID từ JWT token
+            var userIdClaim = User.FindFirstValue("UserID");
+            if (string.IsNullOrEmpty(userIdClaim) || !int.TryParse(userIdClaim, out var userId))
+            {
+                return Unauthorized(new { message = "Invalid token." });
+            }
+
+            // Bước 4: Tìm user trong database
+            var user = _context.Users.FirstOrDefault(u => u.UserId == userId);
+            if (user == null)
+            {
+                return NotFound(new { message = "User not found." });
+            }
+
+            // Bước 5: Cập nhật FullName (nếu có)
+            if (!string.IsNullOrWhiteSpace(request.FullName))
+            {
+                var fullName = request.FullName.Trim();
+                if (string.IsNullOrEmpty(fullName))
+                {
+                    return BadRequest(new { message = "FullName cannot be empty." });
+                }
+                user.FullName = fullName;
+            }
+
+            // Bước 6: Cập nhật Password (nếu có)
+            if (!string.IsNullOrWhiteSpace(request.Password))
+            {
+                // Kiểm tra CurrentPassword bắt buộc khi đổi password
+                if (string.IsNullOrWhiteSpace(request.CurrentPassword))
+                {
+                    return BadRequest(new { message = "Current password is required to change password." });
+                }
+
+                // Verify current password
+                if (!BCrypt.Net.BCrypt.Verify(request.CurrentPassword, user.PasswordHash))
+                {
+                    return Unauthorized(new { message = "Current password is incorrect." });
+                }
+
+                // Hash password mới
+                user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password);
+            }
+
+            // Bước 7: Lưu thay đổi vào database
+            _context.SaveChanges();
+
+            // Bước 8: Trả về thông tin user đã được cập nhật
+            return Ok(new
+            {
+                message = "Profile updated successfully.",
+                user = new
+                {
+                    user.UserId,
+                    user.FullName,
+                    user.Email,
+                    user.Role
+                }
+            });
+        }
+
+        /// <summary>
         /// UC04: Đăng xuất - Xóa token và kết thúc phiên làm việc
         /// </summary>
         /// <returns>Message xác nhận logout thành công</returns>
