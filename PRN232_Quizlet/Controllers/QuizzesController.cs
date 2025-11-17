@@ -216,6 +216,36 @@ namespace PRN232_Quizlet.Controllers
             });
         }
 
+        [HttpGet("stats/{userId}/set/{setId}")]
+        public async Task<IActionResult> GetUserStatsBySet(int userId, int setId)
+        {
+            var histories = await _context.QuizHistories
+                .Where(q => q.UserId == userId && q.SetId == setId)
+                .ToListAsync();
+
+            if (!histories.Any())
+                return NotFound("User has no quiz attempts for this set.");
+
+            int totalQuestions = histories.Sum(h => h.TotalQuestions);
+            int totalCorrect = histories.Sum(h => h.CorrectAnswers);
+            int totalWrong = totalQuestions - totalCorrect;
+
+            double accuracy = Math.Round((double)totalCorrect / totalQuestions * 100, 2);
+            double avgScore = Math.Round(histories.Average(h => h.Score), 2);
+
+            return Ok(new
+            {
+                SetId = setId,
+                TotalQuestions = totalQuestions,
+                Correct = totalCorrect,
+                Wrong = totalWrong,
+                AccuracyPercent = accuracy,
+                AverageScore = avgScore,
+                TotalQuizAttempts = histories.Count
+            });
+        }
+
+
         [HttpGet("history/{userId}")]
         public async Task<IActionResult> GetUserHistory(int userId)
         {
